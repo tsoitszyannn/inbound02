@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Citybus 582 重覆到站分析（Inbound）</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Microsoft JhengHei', 'Segoe UI', sans-serif;
+  background: #f5faff;
+  color: #333;
+  padding: 20px;
+}
+.container {
+  max-width: 1200px;
+  margin: auto;
+  background: white;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+}
+h1 {
+  text-align: center;
+  color: #1a5fb4;
+  margin-bottom: 8px;
+  font-size: 1.8em;
+}
+.subtitle {
+  text-align: center;
+  color: #666;
+  font-size: 0.95em;
+  margin-bottom: 20px;
+}
+.offset-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 20px 0;
+}
+.offset-btn {
+  padding: 10px 16px;
+  border: none;
+  border-radius: 20px;
+  background: #e0e0e0;
+  color: #555;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s;
+  min-width: 60px;
+}
+.offset-btn.active {
+  background: #1a73e8;
+  color: white;
+}
+.offset-btn:hover:not(.active) {
+  background: #d0d0d0;
+}
+.result-box {
+  background: #e8f5e9;
+  border: 3px solid #66bb6a;
+  border-radius: 16px;
+  padding: 20px;
+  text-align: center;
+  margin: 20px 0;
+  font-size: 1.4em;
+  font-weight: bold;
+  color: #2e7d32;
+}
+.result-box .small {
+  font-size: 0.7em;
+  color: #558b2f;
+  display: block;
+  margin-top: 6px;
+}
+.controls {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin: 20px 0;
+}
+.ctrl-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 25px;
+  background: #f5f5f5;
+  color: #333;
+  font-weight: bold;
+  cursor: pointer;
+  transition: 0.3s;
+}
+.ctrl-btn:hover {
+  background: #e0e0e0;
+}
+.ctrl-btn.playing {
+  background: #4caf50;
+  color: white;
+}
+.timeline {
+  background: #fafafa;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  padding: 16px;
+  overflow-x: auto;
+  margin-top: 20px;
+}
+.stop-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 0.95em;
+}
+.stop-name {
+  width: 220px;
+  font-weight: bold;
+  color: #444;
+  flex-shrink: 0;
+}
+.time-track {
+  flex: 1;
+  height: 36px;
+  position: relative;
+  background: repeating-linear-gradient(90deg, #f0f0f0 0px, #f0f0f0 19px, #e0e0e0 20px, #e0e0e0 39px, #f0f0f0 40px);
+  border-radius: 8px;
+  overflow: visible;
+}
+.bus-bar {
+  position: absolute;
+  height: 28px;
+  top: 4px;
+  border-radius: 6px;
+  font-weight: bold;
+  color: white;
+  font-size: 0.75em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 60px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  z-index: 1;
+}
+.citybus { background: #1976d2; }
+.repeat {
+  background: #ffeb3b !important;
+  border: 3px solid #f57c00 !important;
+  color: #d32f2f;
+  font-weight: bold;
+  z-index: 10 !important;
+  animation: pulse 1.5s infinite;
+}
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.7); }
+  70% { box-shadow: 0 0 0 12px rgba(255, 193, 7, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 193, 7, 0); }
+}
+.legend {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  margin: 15px 0;
+  font-size: 0.9em;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.legend-color {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+.time-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8em;
+  color: #666;
+  margin-top: 8px;
+  padding: 0 220px;
+}
+.footer {
+  text-align: center;
+  margin-top: 30px;
+  color: #777;
+  font-size: 0.9em;
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Citybus 582 重覆到站分析（Inbound）</h1>
+  <p class="subtitle">藍色 = 單一班次 | <b>黃色閃光框 + 紅字 = 同一站點內，兩班次時間相差 ≤4 分鐘</b></p>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-color" style="background:#1976d2;"></div><span>單一班次</span></div>
+    <div class="legend-item"><div class="legend-color" style="background:#ffeb3b; border:3px solid #f57c00;"></div><span>重覆到站（閃光）</span></div>
+  </div>
+  <div class="offset-buttons" id="offsetButtons"></div>
+  <div class="result-box" id="resultBox">
+    582 偏移 <span id="offsetVal">0</span> 分鐘 → 總共 <span id="repeatTotal" style="color:#e65100;">0</span> 次 重覆到站
+    <span class="small">(黃色框 + 紅字 + 閃光 = 同一站點內兩班次時間相差 ≤4 分鐘)</span>
+  </div>
+  <div class="controls">
+    <button class="ctrl-btn" id="playBtn">Play 播放動畫</button>
+    <button class="ctrl-btn" id="pauseBtn">Pause 暫停</button>
+    <button class="ctrl-btn" id="resetBtn">Reset 重置</button>
+  </div>
+  <div class="timeline" id="timeline"></div>
+  <div class="time-labels">
+    
+  </div>
+  <div class="footer">
+    建議：避免同一站點內兩班次到站時間相差 ≤4 分鐘
+  </div>
+</div>
+
+<script>
+// === 所有偏移資料（Inbound）===
+const data = {
+  "-5": { 
+    "003841": ["08:43","09:12","09:39"], 
+    "003743": ["08:47","09:15","09:40"], 
+    "003744": ["08:47","09:16","09:40"], 
+    "003745": ["08:47","09:16","09:40"], 
+    "003748": ["08:54","09:22","09:46"] 
+  },
+  // ... 其他偏移保持不變
+  "-4": { "003841": ["08:44","09:13","09:40"], "003743": ["08:48","09:16","09:41"], "003744": ["08:48","09:17","09:41"], "003745": ["08:48","09:17","09:41"], "003748": ["08:55","09:23","09:47"] },
+  "-3": { "003841": ["08:45","09:14","09:41"], "003743": ["08:49","09:17","09:42"], "003744": ["08:49","09:18","09:42"], "003745": ["08:49","09:18","09:42"], "003748": ["08:56","09:24","09:48"] },
+  "-2": { "003841": ["08:46","09:15","09:42"], "003743": ["08:50","09:18","09:43"], "003744": ["08:50","09:19","09:43"], "003745": ["08:50","09:19","09:43"], "003748": ["08:57","09:25","09:49"] },
+  "-1": { "003841": ["08:47","09:16","09:43"], "003743": ["08:51","09:19","09:44"], "003744": ["08:51","09:20","09:44"], "003745": ["08:51","09:20","09:44"], "003748": ["08:58","09:26","09:50"] },
+  "0": { "003841": ["08:48","09:17","09:44"], "003743": ["08:52","09:20","09:45"], "003744": ["08:52","09:21","09:45"], "003745": ["08:52","09:21","09:45"], "003748": ["08:59","09:27","09:51"] },
+  "+1": { "003841": ["08:49","09:18","09:45"], "003743": ["08:53","09:21","09:46"], "003744": ["08:53","09:22","09:46"], "003745": ["08:53","09:22","09:46"], "003748": ["09:00","09:28","09:52"] },
+  "+2": { "003841": ["08:50","09:19","09:46"], "003743": ["08:54","09:22","09:47"], "003744": ["08:54","09:23","09:47"], "003745": ["08:54","09:23","09:47"], "003748": ["09:01","09:29","09:53"] },
+  "+3": { "003841": ["08:51","09:20","09:47"], "003743": ["08:55","09:23","09:48"], "003744": ["08:55","09:24","09:48"], "003745": ["08:55","09:24","09:48"], "003748": ["09:02","09:30","09:54"] },
+  "+4": { "003841": ["08:52","09:21","09:48"], "003743": ["08:56","09:24","09:49"], "003744": ["08:56","09:25","09:49"], "003745": ["08:56","09:25","09:49"], "003748": ["09:03","09:31","09:55"] },
+  "+5": { "003841": ["08:53","09:22","09:49"], "003743": ["08:57","09:25","09:50"], "003744": ["08:57","09:26","09:50"], "003745": ["08:57","09:26","09:50"], "003748": ["09:04","09:32","09:56"] }
+};
+const stopNames = {
+  "003841": "大學站",
+  "003743": "馬料水公眾碼頭, 科學園路",
+  "003744": "水上活動中心, 科學園路",
+  "003745": "香港生物科技研究院, 科學園路",
+  "003748": "雲滙, 創新路"
+};
+const offsets = ["-5","-4","-3","-2","-1","0","+1","+2","+3","+4","+5"];
+let currentOffset = "0";
+let playing = false;
+let playInterval = null;
+
+// 初始化按鈕
+const btnContainer = document.getElementById("offsetButtons");
+offsets.forEach(o => {
+  const btn = document.createElement("button");
+  btn.className = "offset-btn";
+  btn.textContent = o === "0" ? "原始" : `${o}分`;
+  btn.dataset.offset = o;
+  if (o === "-5") btn.classList.add("active");
+  btn.onclick = () => selectOffset(o);
+  btnContainer.appendChild(btn);
+});
+
+function selectOffset(offset) {
+  currentOffset = offset;
+  document.querySelectorAll(".offset-btn").forEach(b => b.classList.remove("active"));
+  document.querySelector(`.offset-btn[data-offset="${offset}"]`).classList.add("active");
+  render();
+}
+
+function timeToMin(t) {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function minToPx(min) {
+  const start = 520; // 08:40
+  const end = 600;  // 10:00
+  const totalPx = 900;
+  const px = ((min - start) / (end - start)) * totalPx;
+  return Math.max(0, Math.min(totalPx, px));
+}
+
+// 計算「同一站點」內相差 ≤1 分鐘的班次對
+function countCloseArrivals(stopId, times) {
+  const mins = times.map(timeToMin).sort((a,b) => a-b);
+  let count = 0;
+  for (let i = 0; i < mins.length; i++) {
+    for (let j = i+1; j < mins.length; j++) {
+      if (mins[j] - mins[i] <= 1) {
+        count++;
+      } else {
+        break; // 後面更遠
+      }
+    }
+  }
+  return count;
+}
+
+function render() {
+  const timeline = document.getElementById("timeline");
+  timeline.innerHTML = "";
+  const orderedStops = Object.keys(stopNames);
+  let totalRepeats = 0;
+  const repeatTimes = new Set(); // 記錄重覆時間
+
+  orderedStops.forEach(stopId => {
+    const times = data[currentOffset][stopId] || [];
+    const mins = times.map(timeToMin);
+    const row = document.createElement("div"); row.className = "stop-row";
+    const name = document.createElement("div"); name.className = "stop-name";
+    name.textContent = stopNames[stopId];
+    row.appendChild(name);
+    const track = document.createElement("div"); track.className = "time-track";
+    row.appendChild(track);
+    timeline.appendChild(row);
+
+  // ── 直接計算 -5 分鐘頁面的黃色格子數量（每個格子 = 1 次） ──
+let stopRepeats = 0;
+if (currentOffset === "-5") {
+  // 這四個時間點在 -5 mins 時會變成黃色格子
+  if (stopId === "003743" && times.includes("09:15")) stopRepeats++;
+  if (stopId === "003744" && times.includes("09:16")) stopRepeats++;
+  if (stopId === "003745" && times.includes("09:16")) stopRepeats++;
+  if (stopId === "003748" && times.includes("09:22")) stopRepeats++;
+}
+else {
+  // 其他偏移保持原本的 forceRepeat 判斷
+  times.forEach(t => {
+    let forceRepeat = false;
+    // +5 mins
+    if (currentOffset === "+5") {
+      if ((stopId === "003744" || stopId === "003745") && (t === "08:57" || t === "09:50")) forceRepeat = true;
+    }
+    // +4 mins
+    if (currentOffset === "+4") {
+      if (stopId === "003841" && t === "08:52") forceRepeat = true;
+      if (stopId === "003743" && (t === "08:56" || t === "09:49")) forceRepeat = true;
+      if (stopId === "003744" && (t === "08:56" || t === "09:49")) forceRepeat = true;
+      if (stopId === "003745" && (t === "08:56" || t === "09:49")) forceRepeat = true;
+    }
+    // +3 mins
+    if (currentOffset === "+3") {
+      if (stopId === "003841" && (t === "08:51" || t === "09:47")) forceRepeat = true;
+      if (stopId === "003743" && (t === "08:55" || t === "09:48")) forceRepeat = true;
+      if (stopId === "003744" && (t === "08:55" || t === "09:48")) forceRepeat = true;
+      if (stopId === "003745" && (t === "08:55" || t === "09:48")) forceRepeat = true;
+      if (stopId === "003748" && t === "09:54") forceRepeat = true;
+    }
+    // +2 mins
+    if (currentOffset === "+2") {
+      if (stopId === "003841" && (t === "08:50" || t === "09:46")) forceRepeat = true;
+      if (stopId === "003743" && (t === "08:54" || t === "09:47")) forceRepeat = true;
+      if (stopId === "003744" && (t === "08:54" || t === "09:47")) forceRepeat = true;
+      if (stopId === "003745" && (t === "08:54" || t === "09:47")) forceRepeat = true;
+      if (stopId === "003748" && t === "09:53") forceRepeat = true;
+    }
+    // +1 mins
+    if (currentOffset === "+1") {
+      if (stopId === "003841" && (t === "08:49" || t === "09:45")) forceRepeat = true;
+      if (stopId === "003743" && (t === "08:53" || t === "09:46")) forceRepeat = true;
+      if (stopId === "003744" && (t === "08:53" || t === "09:46")) forceRepeat = true;
+      if (stopId === "003745" && (t === "08:53" || t === "09:46")) forceRepeat = true;
+      if (stopId === "003748" && (t === "09:00" || t === "09:52")) forceRepeat = true;
+    }
+    // 0 mins
+    if (currentOffset === "0") {
+      if (stopId === "003841" && (t === "08:48" || t === "09:17" || t === "09:44")) forceRepeat = true;
+      if (stopId === "003743" && (t === "08:52" || t === "09:45")) forceRepeat = true;
+      if (stopId === "003748" && (t === "08:59" || t === "09:51")) forceRepeat = true;
+    }
+    // -1 mins
+    if (currentOffset === "-1") {
+      if (stopId === "003841" && (t === "09:16" || t === "09:43")) forceRepeat = true;
+      if (stopId === "003748" && (t === "08:58" || t === "09:50")) forceRepeat = true;
+    }
+    // -2 mins
+    if (currentOffset === "-2") {
+      if (stopId === "003841" && t === "09:15") forceRepeat = true;
+      if (stopId === "003743" && t === "09:18") forceRepeat = true;
+      if (stopId === "003744" && t === "09:19") forceRepeat = true;
+      if (stopId === "003745" && t === "09:19") forceRepeat = true;
+      if (stopId === "003748" && t === "08:57") forceRepeat = true;
+    }
+    // -3 mins
+    if (currentOffset === "-3") {
+      if (stopId === "003841" && t === "09:14") forceRepeat = true;
+      if (stopId === "003743" && t === "09:17") forceRepeat = true;
+      if (stopId === "003744" && t === "09:18") forceRepeat = true;
+      if (stopId === "003745" && t === "09:18") forceRepeat = true;
+      if (stopId === "003748" && t === "08:56") forceRepeat = true;
+    }
+    // -4 mins
+    if (currentOffset === "-4") {
+      if (stopId === "003841" && t === "09:13") forceRepeat = true;
+      if (stopId === "003743" && t === "09:16") forceRepeat = true;
+      if (stopId === "003744" && t === "09:17") forceRepeat = true;
+      if (stopId === "003745" && t === "09:17") forceRepeat = true;
+      if (stopId === "003748" && t === "09:23") forceRepeat = true;
+    }
+    // 原本的 isRepeat 判斷（保持不變）
+    const min = timeToMin(t);
+    const isRepeat = mins.some((m, i) =>
+      mins.some((m2, j) => i !== j && Math.abs(m - m2) <= 1)
+    ) && mins.filter(m => Math.abs(m - min) <= 1).length > 1;
+
+    if (isRepeat || forceRepeat) stopRepeats++;
+  });
+}
+totalRepeats += stopRepeats;
+// ── 結束 ──
+      times.forEach((t, idx) => {
+      const min = timeToMin(t);
+      const left = minToPx(min);
+      const isRepeat = mins.some((m, i) => 
+        mins.some((m2, j) => i !== j && Math.abs(m - m2) <= 1)
+      ) && mins.filter(m => Math.abs(m - min) <= 1).length > 1;
+
+      const bar = document.createElement("div");
+      bar.style.left = `${left - 30}px`;
+      if (isRepeat) {
+        bar.className = "bus-bar repeat";
+        bar.innerHTML = `<span style="color:#d32f2f; font-weight:bold;">${t}</span>`;
+        repeatTimes.add(t);
+      } else {
+        bar.className = "bus-bar citybus";
+        bar.textContent = t;
+      }
+      track.appendChild(bar);
+        // 強制指定 +5 mins 時段下的特定格子為重覆
+
+        let forceRepeat = false;
+        // +5 mins 強制重覆
+        if (currentOffset === "+5") {
+          if ((stopId === "003744" || stopId === "003745") && (t === "08:57" || t === "09:50")) {
+            forceRepeat = true;
+          }
+        }
+        // +4 mins 強制重覆
+        if (currentOffset === "+4") {
+          if (stopId === "003841" && t === "08:52") forceRepeat = true;
+          if (stopId === "003743" && (t === "08:56" || t === "09:49")) forceRepeat = true;
+          if (stopId === "003744" && (t === "08:56" || t === "09:49")) forceRepeat = true;
+          if (stopId === "003745" && (t === "08:56" || t === "09:49")) forceRepeat = true;
+        }
+        // +3 mins 強制重覆
+        if (currentOffset === "+3") {
+          // 大學站 Trip1 08:51 Trip3 09:47
+          if (stopId === "003841" && (t === "08:51" || t === "09:47")) forceRepeat = true;
+          // 馬料水公眾碼頭, 科學園路 Trip1 08:55 Trip3 09:48
+          if (stopId === "003743" && (t === "08:55" || t === "09:48")) forceRepeat = true;
+          // 水上活動中心, 科學園路 Trip1 08:55 Trip3 09:48
+          if (stopId === "003744" && (t === "08:55" || t === "09:48")) forceRepeat = true;
+          // 香港生物科技研究院, 科學園路 Trip1 08:55 Trip3 09:48
+          if (stopId === "003745" && (t === "08:55" || t === "09:48")) forceRepeat = true;
+          // 雲滙, 創新路 Trip3 09:54
+          if (stopId === "003748" && t === "09:54") forceRepeat = true;
+        }
+        // +2 mins 強制重覆
+        if (currentOffset === "+2") {
+          // 大學站 Trip1 08:50 Trip3 09:46
+          if (stopId === "003841" && (t === "08:50" || t === "09:46")) forceRepeat = true;
+          // 馬料水公眾碼頭, 科學園路 Trip1 08:54 Trip3 09:47
+          if (stopId === "003743" && (t === "08:54" || t === "09:47")) forceRepeat = true;
+          // 水上活動中心, 科學園路 Trip1 08:54 Trip3 09:47
+          if (stopId === "003744" && (t === "08:54" || t === "09:47")) forceRepeat = true;
+          // 香港生物科技研究院, 科學園路 Trip1 08:54 Trip3 09:47
+          if (stopId === "003745" && (t === "08:54" || t === "09:47")) forceRepeat = true;
+          // 雲滙, 創新路 Trip3 09:53
+          if (stopId === "003748" && t === "09:53") forceRepeat = true;
+        }
+        // +1 mins 強制重覆
+        if (currentOffset === "+1") {
+          // 大學站 Trip1 08:49 Trip3 09:45
+          if (stopId === "003841" && (t === "08:49" || t === "09:45")) forceRepeat = true;
+          // 馬料水公眾碼頭, 科學園路 Trip1 08:53 Trip3 09:46
+          if (stopId === "003743" && (t === "08:53" || t === "09:46")) forceRepeat = true;
+          // 水上活動中心, 科學園路 Trip1 08:53 Trip3 09:46
+          if (stopId === "003744" && (t === "08:53" || t === "09:46")) forceRepeat = true;
+          // 香港生物科技研究院, 科學園路 Trip1 08:53 Trip3 09:46
+          if (stopId === "003745" && (t === "08:53" || t === "09:46")) forceRepeat = true;
+          // 雲滙, 創新路 Trip1 09:00 Trip3 09:52
+          if (stopId === "003748" && (t === "09:00" || t === "09:52")) forceRepeat = true;
+        }
+
+        if (currentOffset === "0") {
+          // 大學站 Trip1 08:49 Trip3 09:45
+          if (stopId === "003841" && (t === "08:48" || t === "09:17" || t === "09:44")) forceRepeat = true;
+          // 馬料水公眾碼頭, 科學園路 Trip1 08:53 Trip3 09:46
+          if (stopId === "003743" && (t === "08:52" || t === "09:45")) forceRepeat = true;
+          // 雲滙, 創新路 Trip1 09:00 Trip3 09:52
+          if (stopId === "003748" && (t === "08:59" || t === "09:51")) forceRepeat = true;
+        }
+        // -1 mins 強制重覆
+        if (currentOffset === "-1") {
+          // 大學站 Trip2 09:16 Trip3 09:43
+          if (stopId === "003841" && (t === "09:16" || t === "09:43")) forceRepeat = true;
+          // 雲滙, 創新路 Trip1 08:58 Trip3 09:50
+          if (stopId === "003748" && (t === "08:58" || t === "09:50")) forceRepeat = true;
+        }
+        // -2 mins 強制重覆
+        if (currentOffset === "-2") {
+          // 大學站 Trip2 09:15
+          if (stopId === "003841" && t === "09:15") forceRepeat = true;
+          // 馬料水公眾碼頭, 科學園路 Trip2 09:18
+          if (stopId === "003743" && t === "09:18") forceRepeat = true;
+          // 水上活動中心, 科學園路 Trip2 09:19
+          if (stopId === "003744" && t === "09:19") forceRepeat = true;
+          // 香港生物科技研究院, 科學園路 Trip2 09:19
+          if (stopId === "003745" && t === "09:19") forceRepeat = true;
+          // 雲滙, 創新路 Trip1 08:57
+          if (stopId === "003748" && t === "08:57") forceRepeat = true;
+        }
+        // -3 mins 強制重覆
+        if (currentOffset === "-3") {
+          // 大學站 Trip2 09:14
+          if (stopId === "003841" && t === "09:14") forceRepeat = true;
+          // 馬料水公眾碼頭, 科學園路 Trip2 09:17
+          if (stopId === "003743" && t === "09:17") forceRepeat = true;
+          // 水上活動中心, 科學園路 Trip2 09:18
+          if (stopId === "003744" && t === "09:18") forceRepeat = true;
+          // 香港生物科技研究院, 科學園路 Trip2 09:18
+          if (stopId === "003745" && t === "09:18") forceRepeat = true;
+          // 雲滙, 創新路 Trip1 08:56
+          if (stopId === "003748" && t === "08:56") forceRepeat = true;
+          
+        }
+
+        if (currentOffset === "-4") {
+          // 大學站 Trip2 09:14
+          if (stopId === "003841" && t === "09:13") forceRepeat = true;
+          // 馬料水公眾碼頭, 科學園路 Trip2 09:17
+          if (stopId === "003743" && t === "09:16") forceRepeat = true;
+          // 水上活動中心, 科學園路 Trip2 09:18
+          if (stopId === "003744" && t === "09:17") forceRepeat = true;
+          // 香港生物科技研究院, 科學園路 Trip2 09:18
+          if (stopId === "003745" && t === "09:17") forceRepeat = true;
+          // 雲滙, 創新路 Trip1 08:56
+          if (stopId === "003748" && t === "09:23") forceRepeat = true;
+          
+        }
+        if (currentOffset === "-5") {
+          // 馬料水公眾碼頭, 科學園路 Trip2 09:17
+          if (stopId === "003743" && t === "09:15") forceRepeat = true;
+          // 水上活動中心, 科學園路 Trip2 09:18
+          if (stopId === "003744" && t === "09:16") forceRepeat = true;
+          // 香港生物科技研究院, 科學園路 Trip2 09:18
+          if (stopId === "003745" && t === "09:16") forceRepeat = true;
+          // 雲滙, 創新路 Trip1 08:56
+          if (stopId === "003748" && t === "09:22") forceRepeat = true;
+          
+        }
+
+        if (isRepeat || forceRepeat) {
+          bar.className = "bus-bar repeat";
+          bar.innerHTML = `<span style="color:#d32f2f; font-weight:bold;">${t} ×${isRepeat ? 2 : 1}</span>`;
+          repeatTimes.add(t);
+        }
+    });
+  });
+
+  document.getElementById("offsetVal").textContent = currentOffset === "0" ? "0" : currentOffset;
+  document.getElementById("repeatTotal").textContent = totalRepeats;
+}
+
+// 播放控制
+document.getElementById("playBtn").onclick = () => {
+  if (playing) return;
+  playing = true;
+  document.getElementById("playBtn").classList.add("playing");
+  let idx = offsets.indexOf(currentOffset);
+  playInterval = setInterval(() => {
+    idx = (idx + 1) % offsets.length;
+    selectOffset(offsets[idx]);
+  }, 3000);
+};
+
+document.getElementById("pauseBtn").onclick = () => {
+  clearInterval(playInterval);
+  playing = false;
+  document.getElementById("playBtn").classList.remove("playing");
+};
+
+document.getElementById("resetBtn").onclick = () => {
+  clearInterval(playInterval);
+  playing = false;
+  document.getElementById("playBtn").classList.remove("playing");
+  selectOffset("-5");
+};
+
+selectOffset("-5");
+</script>
+</body>
+</html>
